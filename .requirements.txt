@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+sqlmodel
+asyncpg
+pydantic-settings
+pyjwt
+bcrypt
+brevo-python
+jinja2
+python-multipart
+email-validator
