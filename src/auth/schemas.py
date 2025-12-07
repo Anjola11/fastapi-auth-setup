@@ -58,3 +58,15 @@ class ForgotPasswordResponse(BaseModel):
     success: bool
     message: str
     data: dict = {}
+
+class ResetPasswordInput(BaseModel):
+    new_password: str
+    reset_token: str
+    
+class RenewAccessTokenInput(BaseModel):
+    refresh_token: str
+
+class RenweAccessTokenResponse(BaseModel):
+    success: bool
+    message: str
+    data: dict = {}
