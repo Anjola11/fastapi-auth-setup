@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 import jwt
 import uuid
 from src.config import Config
+from fastapi import HTTPException, status
+
 
 def generate_password_hash(password: str) -> str:
     salt = bcrypt.gensalt()
@@ -34,10 +36,27 @@ def create_token(user_data: dict, expiry_delta: timedelta, type: str):
     return token
 
 def decode_token(token: str) -> dict:
-    token_data = jwt.decode(
-        jwt=token,
-        key=Config.JWT_KEY,
-        algorithms=[Config.JWT_ALGORITHM],
-        leeway=10
-    )
+    try:
+
+        token_data = jwt.decode(
+            jwt=token,
+            key=Config.JWT_KEY,
+            algorithms=[Config.JWT_ALGORITHM],
+            leeway=10
+        )
+
+    except jwt.InvalidTokenError:
+    # Handles malformed tokens, wrong signatures, or tampered data
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid token."
+        )
+
+    except Exception as e:
+        # OPTIONAL: Catch unexpected system errors (like a code bug)
+        print(f"Unexpected error: {e}") 
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Something went wrong processing the token."
+        )
     return token_data

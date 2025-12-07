@@ -154,11 +154,9 @@ class AuthServices:
         return user
     
     async def resetPassword(self, resetPasswordInput: ResetPasswordInput, session: AsyncSession):
-        try:
-            token_decode = decode_token(resetPasswordInput.token)
-        except Exception:
-             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token")
-
+        
+        token_decode = decode_token(resetPasswordInput.token)
+        
         if token_decode.get('type') != "reset":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token type")
 
@@ -168,7 +166,7 @@ class AuthServices:
         user = result.first()
 
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User not found")
 
         new_hashed_password = generate_password_hash(resetPasswordInput.new_password)
         user.password_hash = new_hashed_password
