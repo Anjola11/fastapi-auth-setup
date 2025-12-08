@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 import jwt
 import uuid
 from src.config import Config
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 
 def generate_password_hash(password: str) -> str:
@@ -65,3 +66,26 @@ def decode_token(token: str) -> dict:
         )
     return token_data
 
+
+security = HTTPBearer()
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+
+    token = credentials.credentials
+
+    token_decoded = decode_token(token)
+
+    if token_decoded.get('type') != 'access':
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type. Access token required."
+        )
+
+    user_id = token_decoded.get("sub")
+    if not user_id:
+         raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token missing user ID."
+        )
+    
+    return user_id

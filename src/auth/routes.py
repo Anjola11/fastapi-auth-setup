@@ -10,7 +10,7 @@ from src.auth.schemas import (
     ForgotPasswordResponse, 
     ResetPasswordInput,
     RenewAccessTokenInput,
-    RenweAccessTokenResponse
+    RenewAccessTokenResponse
 )
 from sqlmodel.ext.asyncio.session import AsyncSession
 from src.db.main import get_Session
@@ -126,7 +126,7 @@ async def resetPassword(
         "data": user
     }
 
-@authRouter.post("/renew_access_token", status_code=status.HTTP_201_CREATED, response_model=RenweAccessTokenResponse)
+@authRouter.post("/renew_access_token", status_code=status.HTTP_201_CREATED, response_model=RenewAccessTokenResponse)
 async def renewAccessToken(
     renewAccessTokenInput: RenewAccessTokenInput,
     session: AsyncSession = Depends(get_Session) 
