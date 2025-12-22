@@ -10,7 +10,7 @@ from src.auth.schemas import (
     ForgotPasswordResponse, 
     ResetPasswordInput,
     RenewAccessTokenInput,
-    RenewAccessTokenResponse
+    RenewAccessTokenResponse, LogoutResponse
 )
 from sqlmodel.ext.asyncio.session import AsyncSession
 from src.db.main import get_Session
@@ -18,7 +18,9 @@ from src.emailServices.services import EmailServices
 from src.emailServices.schemas import OtpTypes
 from src.utils.auth import create_token
 from datetime import timedelta
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+security = HTTPBearer()
 reset_password_expiry = timedelta(minutes=5)
 
 authRouter = APIRouter()
@@ -138,4 +140,18 @@ async def renewAccessToken(
         "success": True,
         "message": "access token renewed successfully",
         "data": new_token
+    }
+
+@authRouter.post("/logout", status_code=status.HTTP_200_OK, response_model=LogoutResponse)
+async def logout(
+        token_auth: HTTPAuthorizationCredentials = Depends(security)
+):
+    token = token_auth.credentials
+
+    await authServices.add_token_to_blocklist(token)
+    
+    return {
+        "success": True,
+        "message": "Logged out successfully",
+        "data": {}
     }

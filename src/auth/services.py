@@ -8,6 +8,7 @@ from sqlalchemy.exc import DatabaseError
 from src.utils.auth import generate_password_hash, verify_password_hash, create_token, decode_token
 from datetime import datetime, timezone, timedelta
 import uuid
+from src.db.redis import redis_client
 
 access_token_expiry = timedelta(hours=2)
 refresh_token_expiry = timedelta(days=3)
@@ -216,4 +217,21 @@ class AuthServices:
             "access_token" : new_token
         }
         
-       
+    
+    async def add_token_to_blocklist(self, token):
+
+        token_decoded = decode_token(token)
+        token_id = token_decoded.get('jti')
+        exp_timestamp = token_decoded.get('exp')
+
+        current_time = datetime.now(timezone.utc).timestamp()
+        time_to_live = int(exp_timestamp - current_time)
+
+        if time_to_live > 0:
+            await redis_client.setex(name=token_id, time=time_to_live, value="true")
+        
+
+    async def is_token_blacklisted(self, jti: str) -> bool:
+        
+        result = await redis_client.get(jti)
+        return result is not None

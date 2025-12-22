@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request, status
 from contextlib import asynccontextmanager
 from src.db.main import init_db
+from src.db.redis import redis_client, check_redis_connection
 from src.auth.routes import authRouter
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -8,8 +9,18 @@ from fastapi.exceptions import RequestValidationError
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("\n---Server Started---\n")
+    
+    # 1. Initialize Postgres
     await init_db()
+    
+    # 2. Check Redis Connection
+    await check_redis_connection()
+    
     yield
+    
+    # 3. Clean up Redis connections on shutdown
+    print("---Closing Redis Connection---")
+    await redis_client.close()
     print("---Server Closed---")
 
 app = FastAPI(
