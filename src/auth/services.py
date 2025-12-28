@@ -127,6 +127,13 @@ class AuthServices:
         if not user:
             raise INVALID_CREDENTIALS
 
+        if not user.email_verified:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="please verify your account before you can login"
+            )
+
+
         verified_password = verify_password_hash(loginInput.password, user.password_hash)
         if not verified_password:
             raise INVALID_CREDENTIALS
