@@ -1,10 +1,16 @@
 from fastapi import FastAPI, HTTPException, Request, status
 from contextlib import asynccontextmanager
-from src.db.main import init_db
+from src.db.main import init_db, DbCleanupServices
 from src.db.redis import redis_client, check_redis_connection
 from src.auth.routes import authRouter
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+
+scheduler = AsyncIOScheduler()
+db_cleanup = DbCleanupServices()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -15,7 +21,11 @@ async def lifespan(app: FastAPI):
     
     # 2. Check Redis Connection
     await check_redis_connection()
-    
+
+    scheduler.add_job(db_cleanup.users_cleanup, 'interval', days= 1)
+    scheduler.add_job(db_cleanup.universal_otp_cleanup, 'interval', minutes= 30)
+
+    scheduler.start()
     yield
     
     # 3. Clean up Redis connections on shutdown
