@@ -4,10 +4,12 @@ This module defines the request and response models used in authentication
 endpoints. Validates data for the simplified, single-user-table architecture.
 """
 
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 from datetime import datetime
 import uuid
 from src.emailServices.schemas import OtpTypes
+from typing import Optional
+import re
 
 # --- INPUT SCHEMAS ---
 
@@ -15,7 +17,21 @@ class UserInput(BaseModel):
     """Payload for user registration."""
     fullName: str
     email: EmailStr
-    password: str
+    password: str 
+
+    @field_validator("password")
+    @classmethod
+    def validate(cls, value:str):
+        if len(value) < 8:
+            raise ValueError("Password must have a minimum length of 8 characters")
+        
+        if not re.search(r'[A-Z]', value):
+            raise ValueError('Password must contain at least one uppercase letter')
+        if not re.search(r'[a-z]', value):
+            raise ValueError('Password must contain at least one lowercase letter')
+        if not re.search(r'[0-9]', value):
+            raise ValueError('Password must contain at least one digit')
+        return value  # Fixed: was 'v' instead of 'value'
 
 class LoginInput(BaseModel):
     """Payload for user login."""
@@ -70,9 +86,8 @@ class LoginData(BaseModel):
     email_verified: bool
     profile_picture_url: str
     created_at: datetime
-    access_token: str
-    refresh_token: str
-
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)
 
 class LoginResponse(BaseModel):
@@ -90,6 +105,20 @@ class ForgotPasswordResponse(BaseModel):
 class ResetPasswordInput(BaseModel):
     new_password: str
     reset_token: str
+    
+    @field_validator("new_password")
+    @classmethod
+    def validate_password(cls, value: str):
+        """Validate new password strength (same requirements as signup)."""
+        if len(value) < 8:
+            raise ValueError("Password must have a minimum length of 8 characters")
+        if not re.search(r'[A-Z]', value):
+            raise ValueError('Password must contain at least one uppercase letter')
+        if not re.search(r'[a-z]', value):
+            raise ValueError('Password must contain at least one lowercase letter')
+        if not re.search(r'[0-9]', value):
+            raise ValueError('Password must contain at least one digit')
+        return value
  
 class RenewAccessTokenInput(BaseModel):
     refresh_token: str
@@ -99,6 +128,8 @@ class RenewAccessTokenResponse(BaseModel):
     message: str
     data: dict = {}
 
+class LogoutInput(BaseModel):
+    refresh_token: Optional[str] = None
 class LogoutResponse(BaseModel):
     success: bool
     message: str

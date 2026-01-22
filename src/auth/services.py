@@ -116,9 +116,19 @@ class AuthServices:
         
         # Validate OTP code matches
         if latest_otp_record.otp != otp_input.otp:
+            latest_otp_record.attempts += 1
+            if latest_otp_record.attempts >= latest_otp_record.max_attempts:  
+                await session.delete(latest_otp_record)
+                await session.commit()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, 
+                    detail="OTP expired due to too many failed attempts"
+                )
+            
+            await session.commit()
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, 
-                detail="Invalid OTP code"
+                detail=f"Invalid OTP. {latest_otp_record.max_attempts - latest_otp_record.attempts} attempts remaining"
             )
 
         # Check if OTP has expired
@@ -251,7 +261,22 @@ class AuthServices:
             }
             
     async def loginUser(self, loginInput: LoginInput, session: AsyncSession):
-        """Authenticate a user and generate access tokens."""
+        """Authenticate user and generate tokens for dual-auth delivery.
+        
+        Returns both access and refresh tokens in response dict for dual delivery:
+        - Route layer sets tokens as httponly cookies (web clients)
+        - Response body contains tokens (mobile clients extract and store)
+        
+        Args:
+            loginInput: User email and password credentials.
+            session: Database session.
+        
+        Returns:
+            dict: User data with access_token and refresh_token included.
+        
+        Raises:
+            HTTPException: If credentials invalid or email not verified.
+        """
         
         # Query user by email using Helper
         user = await self.get_user_by_email(loginInput.email, session)
@@ -278,16 +303,16 @@ class AuthServices:
         if not verified_password:
             raise INVALID_CREDENTIALS
 
-        # Generate authentication tokens
+        # Generate authentication tokens for dual-auth delivery
         user_dict = user.model_dump()
         access_token = create_token(user_dict, access_token_expiry, type="access")
         refresh_token = create_token(user_dict, refresh_token_expiry, type="refresh")
         
-        # Combine user data with tokens
+        # Return tokens in dict for dual delivery (cookies + response body)
         user_details = {
             **user_dict, 
-            'access_token': access_token,
-            'refresh_token': refresh_token,
+            'access_token': access_token,  # Will be set in cookies and returned in body
+            'refresh_token': refresh_token,  # Will be set in cookies and returned in body
             'profile_picture_url': user.profile_picture_url
         }
         
@@ -368,19 +393,43 @@ class AuthServices:
                 detail="Internal server error"
             )
         
-    async def renewAccessToken(self, renewAccessTokenInput: RenewAccessTokenInput, session: AsyncSession):
-       
-        refresh_token_str = renewAccessTokenInput.refresh_token
+    async def renewAccessToken(self, old_refresh_token_str: str,  session: AsyncSession):
+        """Renew access token using refresh token with rotation (dual-auth agnostic).
         
-        token_decode = decode_token(refresh_token_str)
+        Implements refresh token rotation for security: old refresh token is blocklisted
+        and a new refresh token is issued. Works for both mobile and web clients.
+        Route layer determines response format based on request source.
+        
+        Args:
+            old_refresh_token_str: Refresh token from cookies or bearer header.
+            session: Database session.
+        
+        Returns:
+            dict: New access_token and refresh_token.
+        
+        Raises:
+            HTTPException: If token invalid, expired, or already used (rotation detection).
+        """
+        # Decode and validate refresh token
+        old_refresh_token_decode = decode_token(old_refresh_token_str)
 
-        if token_decode.get('type') != "refresh":
+        # Ensure this is a refresh token, not access/reset
+        if old_refresh_token_decode.get('type') != "refresh":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, 
                 detail="Invalid token type"
             )
+        
+        # Detect refresh token reuse (security: rotation attack)
+        jti = old_refresh_token_decode.get('jti')
+        if await self.is_token_blacklisted(jti):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, 
+                detail="Refresh token reused. Login required."
+            )
 
-        user_id = token_decode.get("sub") 
+        # Retrieve user from token subject
+        user_id = old_refresh_token_decode.get("sub") 
         statement = select(User).where(User.user_id == uuid.UUID(user_id))
         result = await session.exec(statement)
         user = result.first()
@@ -393,23 +442,50 @@ class AuthServices:
             "email": user.email
         }
 
+        # Generate new access token
         new_token = create_token(user_data, expiry_delta=access_token_expiry, type="access")
+
+        # Blocklist old refresh token (rotation: prevents reuse)
+        await self.add_token_to_blocklist(old_refresh_token_str)
+
+        # Generate new refresh token (rotation)
+        new_refresh_token = create_token(user_data, expiry_delta=refresh_token_expiry, type="refresh")
         
+        # Return both tokens for dual-auth delivery by route layer
         return {
-            "access_token" : new_token
+            "access_token" : new_token,
+            "refresh_token": new_refresh_token
         }
     
     async def add_token_to_blocklist(self, token):
+        """Revoke token by adding to Redis blocklist (dual-auth agnostic).
+        
+        Used for logout and refresh token rotation. Blocklisted tokens are rejected
+        by get_current_user and renewAccessToken. Works for both mobile and web.
+        
+        Args:
+            token: JWT token string to revoke.
+        """
         token_decoded = decode_token(token)
-        token_id = token_decoded.get('jti')
+        token_id = token_decoded.get('jti')  # Unique token identifier
         exp_timestamp = token_decoded.get('exp')
 
+        # Calculate TTL: Only blocklist until natural expiry
         current_time = datetime.now(timezone.utc).timestamp()
         time_to_live = int(exp_timestamp - current_time)
 
+        # Only blocklist if token hasn't expired yet
         if time_to_live > 0:
             await redis_client.setex(name=token_id, time=time_to_live, value="true")
         
     async def is_token_blacklisted(self, jti: str) -> bool:
+        """Check if token is revoked via Redis blocklist.
+        
+        Args:
+            jti: JWT ID (unique token identifier).
+        
+        Returns:
+            bool: True if token is blocklisted (revoked), False otherwise.
+        """
         result = await redis_client.get(jti)
         return result is not None
